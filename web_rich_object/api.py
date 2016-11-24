@@ -1,24 +1,37 @@
 try:
-    from urllib.request import urlopen
+    from urllib.request import urlopen, Request
     from urllib.parse import urlparse, urljoin
 except ImportError:
-    from urllib2 import urlopen
+    from urllib2 import urlopen, Request
     from urlparse import urlparse, urljoin
 import bs4
 
+DEFAULT_USER_AGENT = 'Web Rich Object Client'
+
 
 class WebRichObject(object):
-    def __init__(self, url=None, html=None):
+    def __init__(self, url=None, html=None, headers=None, user_agent=None):
         if url is None and html is None:
             raise ValueError("You must specify a URL or HTML content")
+        self.user_agent = user_agent or DEFAULT_USER_AGENT
         if url is not None:
-            response = urlopen(url)
+            response = self.urlopen(url, headers=headers)
             self.info = vars(response.info())
+            self.request_headers = dict([h.strip().split(':', 1)
+                                         for h in self.info['headers']])
             self.html = response.read()
         else:
             self.info = {}
+            self.request_headers = {}
             self.html = html
         self.base_url = url
+
+    def urlopen(self, url, headers):
+        headers = headers or {}
+        if not headers.get('User-Agent'):
+            headers['User-Agent'] = self.user_agent
+        req = Request(url, headers=headers)
+        return urlopen(req)
 
     @property
     def soup(self):
@@ -151,15 +164,19 @@ class WebRichObject(object):
     def locale(self):
         if not hasattr(self, '_locale'):
             self._locale = None
+            # If HTML ; with open graph
             locale_tag = self.soup.find('meta', property='og:locale')
             if locale_tag is not None:
                 self._locale = locale_tag.attrs['content']
-            if self._locale is None:
-                self._locale = self.soup.find('html').attrs.get('lang')
-            if self._locale is None:
-                self._locale = self.soup.find('html').attrs.get('xml:lang')
-            if self._locale is None:
-                self._locale = self.info['headers'].get('Content-Language')
+            # Or get with HTML tag
+            html_tag = self.soup.find('html')
+            if html_tag is not None:
+                self._locale = html_tag.attrs.get('lang')
+                if self._locale is None:
+                    self._locale = html_tag.attrs.get('xml:lang')
+            # Get from response header
+            if self._locale is None and self.request_headers:
+                self._locale = self.request_headers.get('Content-Language')
         return self._locale
 
     @property

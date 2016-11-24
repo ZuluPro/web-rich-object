@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 import web_rich_object
 
 
@@ -16,6 +16,7 @@ setup(
     keywords=['web rich object', 'opengraph', 'facebook', 'web'],
     license='BSD',
     py_modules=['web_rich_object'],
+    packages=find_packages(),
     install_requires=read_file('requirements.txt').splitlines(),
     classifiers=[
         "Development Status :: 3 - Alpha",
