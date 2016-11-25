@@ -26,6 +26,7 @@ class WebRichObject(object):
             self.html = html
         self.base_url = url
 
+    # TODO: Make staticmethod
     def urlopen(self, url, headers):
         headers = headers or {}
         if not headers.get('User-Agent'):
@@ -218,6 +219,116 @@ class WebRichObject(object):
                 self.soup.find_all('meta', property='og:image')
             ]
         return self._images
+
+    @property
+    def author(self):
+        if not hasattr(self, '_author'):
+            # from opengraph og:author
+            self._author = None
+            # from og:author, XXX: Hack
+            og_author_tag = self.soup.find('meta', property='og:author')
+            if og_author_tag is not None:
+                self._author = og_author_tag.attrs['content']
+            # from opengraph article:author
+            if self._author is None:
+                og_author_article_tag = self.soup.find('meta', property='article:author')
+                if og_author_article_tag is not None:
+                    self._author = og_author_article_tag.attrs['content']
+            # from opengraph book:author
+            if self._author is None:
+                og_author_article_tag = self.soup.find('meta', property='book:author')
+                if og_author_article_tag is not None:
+                    self._author = og_author_article_tag.attrs['content']
+            # from HTML meta author
+            if self._author is None:
+                meta_author_tag = self.soup.find('meta', name='author')
+                if og_author_article_tag is not None:
+                    self._author = meta_author_tag.attrs['content']
+        return self._author
+
+    @property
+    def published_time(self):
+        if not hasattr(self, '_published_time'):
+            self._published_time = None
+            # from og:published_time, XXX: Hack
+            og_pt_tag = self.soup.find('meta', property='og:published_time')
+            if og_pt_tag is not None:
+                self._published_time = og_pt_tag.attrs['content']
+            # from opengraph article_published_time
+            if self.published_time is None:
+                og_article_pt_tag = self.soup.find('meta', property='article:published_time')
+                if og_article_pt_tag is not None:
+                    self._published_time = og_article_pt_tag.attrs['content']
+            # from html5 issued
+            if self.published_time is None:
+                og_issued_tag = self.soup.find('meta', name='issued')
+                if og_issued_tag is not None:
+                    self.published_time = og_issued_tag['content']
+        return self._published_time
+
+    @property
+    def modified_time(self):
+        if not hasattr(self, '_modified_time'):
+            self._modified_time = None
+            # from og:modified_time, XXX: Hack
+            og_md_tag = self.soup.find('meta', property='og:modified_time')
+            if og_md_tag is not None:
+                self._modified_time = og_md_tag.attrs['content']
+            # from opengraph article_modified_time
+            if self.modified_time is None:
+                og_article_md_tag = self.soup.find('meta', property='article:modified_time')
+                if og_article_md_tag is not None:
+                    self._modified_time = og_article_md_tag.attrs['content']
+            # from html5 issued
+            if self.modified_time is None:
+                og_issued_tag = self.soup.find('meta', name='modified')
+                if og_issued_tag is not None:
+                    self.modified_time = og_issued_tag['content']
+        return self._modified_time
+
+    @property
+    def expiration_time(self):
+        if not hasattr(self, '_expiration_time'):
+            self._expiration_time = None
+            # from og:expiration_time, XXX: Hack
+            og_md_tag = self.soup.find('meta', property='og:expiration_time')
+            if og_md_tag is not None:
+                self._expiration_time = og_md_tag.attrs['content']
+            # from opengraph article_expiration_time
+            if self.expiration_time is None:
+                og_article_md_tag = self.soup.find('meta', property='article:expiration_time')
+                if og_article_md_tag is not None:
+                    self._expiration_time = og_article_md_tag.attrs['content']
+        return self._expiration_time
+
+    @property
+    def section(self):
+        if not hasattr(self, '_section'):
+            self._section = None
+            # from og:section, XXX: Hack
+            og_section_tag = self.soup.find('meta', property='og:section')
+            if og_section_tag is not None:
+                self._expiration_time = og_section_tag.attrs['content']
+            # from opengraph article:section
+            if self.expiration_time is None:
+                og_article_section_tag = self.soup.find('meta', property='article:section')
+                if og_article_section_tag is not None:
+                    self._expiration_time = og_article_section_tag.attrs['content']
+        return self._section
+
+    @property
+    def tags(self):
+        if not hasattr(self, '_tags'):
+            self._tags = []
+            # from og:tag, XXX: Hack
+            og_tag_tags = self.soup.findall('meta', property='og:tag')
+            for tag in og_tag_tags:
+                og_tag_tags.append(tag.attrs['og:tag'])
+            # from opengraph article:tags
+            og_tag_tags = self.soup.findall('meta', property='article:tag')
+            for tag in og_tag_tags:
+                og_tag_tags.append(tag.attrs['og:tag'])
+        return self._section
 
     @property
     def struct_image(self):
