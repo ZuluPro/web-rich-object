@@ -1,8 +1,10 @@
 import unittest
 try:
     from unittest.mock import patch
+    from urllib import URLError
 except ImportError:
     from mock import patch
+    from urllib2 import URLError
 from web_rich_object.api import (
     WebRichObject as WRO,
     DEFAULT_USER_AGENT
@@ -12,7 +14,10 @@ from web_rich_object.api import (
 class WebRichObjectFunctionalTest(unittest.TestCase):
     def test_website(self):
         url = 'http://example.com'
-        wro = WRO(url)
+        try:
+            wro = WRO(url)
+        except URLError as err:
+            self.skipTest("Can't test: %s" % err)
         self.assertEqual(wro.title, 'Example Domain')
         self.assertEqual(wro.base_url, url)
         self.assertEqual(wro.site_name, 'example.com')
@@ -161,7 +166,7 @@ class WebRichObjectTypeTest(unittest.TestCase):
         self.assertEqual(wro.type, 'image')
 
     @patch('web_rich_object.api.urlopen', **{
-        'return_value.read.return_value': '<html><html>',
+        'return_value.read.return_value': '<html></html>>',
         'return_value.info.return_value.__dict__': {'headers': ''},
     })
     def test_unknown(self, mock_urlopen):
@@ -181,107 +186,343 @@ class WebRichObjectImage(unittest.TestCase):
         wro = WRO(self.url)
         self.assertEqual(wro.image, self.url)
 
-    def test_from_og_image(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:image" content="http://foo.png"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_image(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.image, 'http://foo.png')
 
-    def test_from_link_tag(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><link rel="icon" href="/favicon.ico" type="image/x-icon"></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_favicon_shortcut_icon(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.image, 'http://example.com/favicon.ico')
 
-    def test_from_favicon(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><img src="/foo.png"></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_first_image(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.image, 'http://example.com/foo.png')
 
-    def test_from_1st_image(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><img src="foo.png"></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_path(self, mock_urlopen):
+        wro = WRO(self.url + '/bar/')
+        self.assertEqual(wro.image, 'http://example.com/bar/foo.png')
 
-    def test_from_relative_path(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><img src="/foo.png"></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_path_from_root(self, mock_urlopen):
+        wro = WRO(self.url + '/bar/')
+        self.assertEqual(wro.image, 'http://example.com/foo.png')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><img src="//example.com/foo.png"></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_protocol(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.image, 'http://example.com/foo.png')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_none(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.image, None)
 
 
 class WebRichObjectUrlTest(unittest.TestCase):
-    def test_from_og_url(self):
-        pass
+    url = 'http://example.com'
 
-    def test_default_is_base_url(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:url" content="http://example.com/foo"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_url(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.url, 'http://example.com/foo')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_base_url(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.url, wro.base_url)
 
 
 class WebRichObjectDescriptionTest(unittest.TestCase):
-    def test_from_og_description(self):
-        pass
+    url = 'http://example.com'
 
-    def test_from_meta_tag(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:description" content="foo"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_description(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.description, 'foo')
 
-    def test_default_is_none(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta name="description" content="foo"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_meta_tag(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.description, 'foo')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_none(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.description, None)
 
 
 class WebRichObjectAudioTest(unittest.TestCase):
-    def test_from_og_audio(self):
-        pass
+    url = 'http://example.com'
 
-    def test_default_is_none(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:audio" content="http://example.com/foo.mp4"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_audio(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.audio, 'http://example.com/foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><audio controls><source src="http://example.com/foo.mp4" type="audio/mpeg"></audio><html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_first_audio(self, mock_urlopen):
+        self.skipTest("Not implemented")
+        wro = WRO(self.url)
+        self.assertEqual(wro.audio, 'http://example.com/foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><audio controls><source src="foo.mp4" type="audio/mpeg"></audio><html>',
+        'return_value.read.return_value': '<html><img src="foo.png"></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_path(self, mock_urlopen):
+        self.skipTest("Not implemented")
+        wro = WRO(self.url + '/bar/')
+        self.assertEqual(wro.audio, 'http://example.com/bar/foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><audio controls><source src="/foo.mp4" type="audio/mpeg"></audio><html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_path_from_root(self, mock_urlopen):
+        self.skipTest("Not implemented")
+        wro = WRO(self.url + '/bar/')
+        self.assertEqual(wro.audio, 'http://example.com/foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><audio controls><source src="//example.com/foo.mp4" type="audio/mpeg"></audio><html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_protocol(self, mock_urlopen):
+        self.skipTest("Not implemented")
+        wro = WRO(self.url)
+        self.assertEqual(wro.audio, 'http://example.com/foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_none(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.audio, None)
 
 
 class WebRichObjectDeterminerTest(unittest.TestCase):
-    def test_from_og_determiner(self):
-        pass
+    url = 'http://example.com'
 
-    def test_default_is_none(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:determiner" content="foo"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_determiner(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.determiner, 'foo')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_auto(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.determiner, 'auto')
 
 
 class WebRichObjectLocaleTest(unittest.TestCase):
-    def test_from_og_locale(self):
-        pass
+    url = 'http://example.com'
 
-    def test_from_lang_tag(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:locale" content="PT"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_locale(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.locale, 'PT')
 
-    def test_from_xml_lang_tag(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html lang="PT"></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_lang_tag(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.locale, 'PT')
 
-    def test_from_content_language_headers(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html xml:lang="PT"></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_xml_lang_tag(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.locale, 'PT')
 
-    def test_default_is_none(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ['Content-Language:PT']},
+    })
+    def test_from_content_language_headers(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.locale, 'PT')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_none(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.locale, None)
 
 
 class WebRichObjectLocaleAlternativeTest(unittest.TestCase):
-    def test_from_og_alternative(self):
-        pass
+    url = 'http://example.com'
 
-    def test_default_is_none(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:locale_alternative" content="PT"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_alternative(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.locale_alternative, ['PT'])
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_empty(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.locale_alternative, [])
 
 
 class WebRichObjectSiteNameTest(unittest.TestCase):
-    def test_from_og_site_name(self):
-        pass
+    url = 'http://example.com'
 
-    def test_default_is_hostname(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:site_name" content="Foo"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_site_name(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.site_name, 'Foo')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_hostname(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.site_name, 'example.com')
 
 
 class WebRichObjectVideoTest(unittest.TestCase):
-    def test_from_og_video(self):
-        pass
+    url = 'http://example.com'
 
-    def test_default_is_none(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:video" content="foo.mp4"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_video(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.video, 'foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:video" content="foo.mp4"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_path(self, mock_urlopen):
+        self.skipTest("Not implemented")
+        wro = WRO(self.url + '/bar/')
+        self.assertEqual(wro.audio, 'http://example.com/bar/foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:video" content="/foo.mp4"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_path_from_root(self, mock_urlopen):
+        self.skipTest("Not implemented")
+        wro = WRO(self.url + '/bar/')
+        self.assertEqual(wro.audio, 'http://example.com/foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:video" content="//example.com/foo.mp4"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_relative_protocol(self, mock_urlopen):
+        self.skipTest("Not implemented")
+        wro = WRO(self.url)
+        self.assertEqual(wro.audio, 'http://example.com/foo.mp4')
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_none(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.video, None)
 
 
 class WebRichObjectImagesTest(unittest.TestCase):
-    def test_from_og_images(self):
-        pass
+    url = 'http://example.com'
 
-    def test_default_is_none(self):
-        pass
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html><meta property="og:image" content="/foo.mp4"/></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_from_og_images(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.images, ['/foo.mp4'])
+
+    @patch('web_rich_object.api.urlopen', **{
+        'return_value.read.return_value': '<html></html>',
+        'return_value.info.return_value.__dict__': {'headers': ''},
+    })
+    def test_default_is_empty(self, mock_urlopen):
+        wro = WRO(self.url)
+        self.assertEqual(wro.images, [])
 
 
 class WebRichObjectStructImageTest(unittest.TestCase):
+    def setUp(self):
+        self.skipTest('In progress')
+
     def test_url(self):
         pass
 
@@ -302,6 +543,9 @@ class WebRichObjectStructImageTest(unittest.TestCase):
 
 
 class WebRichObjectStructVideoTest(unittest.TestCase):
+    def setUp(self):
+        self.skipTest('In progress')
+
     def test_url(self):
         pass
 
@@ -322,6 +566,9 @@ class WebRichObjectStructVideoTest(unittest.TestCase):
 
 
 class WebRichObjectStructAudioTest(unittest.TestCase):
+    def setUp(self):
+        self.skipTest('In progress')
+
     def test_url(self):
         pass
 

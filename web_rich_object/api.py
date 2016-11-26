@@ -138,8 +138,8 @@ class WebRichObject(object):
             if description_tag is not None:
                 self._description = description_tag.attrs['content']
             else:
-                description_tag = self.soup.find('meta', attrs={'name':'description'})
-                if self._description is not None:
+                description_tag = self.soup.find('meta', attrs={'name': 'description'})
+                if description_tag is not None:
                     self._description = description_tag.attrs['content']
         return self._description
 
@@ -159,6 +159,8 @@ class WebRichObject(object):
             determiner_tag = self.soup.find('meta', property='og:determiner')
             if determiner_tag is not None:
                 self._determiner = determiner_tag.attrs['content']
+            else:
+                self._determiner = 'auto'
         return self._determiner
 
     @property
@@ -170,11 +172,12 @@ class WebRichObject(object):
             if locale_tag is not None:
                 self._locale = locale_tag.attrs['content']
             # Or get with HTML tag
-            html_tag = self.soup.find('html')
-            if html_tag is not None:
-                self._locale = html_tag.attrs.get('lang')
-                if self._locale is None:
-                    self._locale = html_tag.attrs.get('xml:lang')
+            if self._locale is None:
+                html_tag = self.soup.find('html')
+                if html_tag is not None:
+                    self._locale = html_tag.attrs.get('lang')
+                    if self._locale is None:
+                        self._locale = html_tag.attrs.get('xml:lang')
             # Get from response header
             if self._locale is None and self.request_headers:
                 self._locale = self.request_headers.get('Content-Language')
