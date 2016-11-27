@@ -31,7 +31,7 @@ class WebRichObject(object):
         headers = headers or {}
         if not headers.get('User-Agent'):
             headers['User-Agent'] = self.user_agent
-        req = Request(url, headers=headers)
+        req = Request(url.encode('utf-8'), headers=headers)
         return urlopen(req)
 
     @property
@@ -39,6 +39,18 @@ class WebRichObject(object):
         if not hasattr(self, '_soup'):
             self._soup = bs4.BeautifulSoup(self.html, 'html.parser')
         return self._soup
+
+    def _format_url(self, url):
+        parsed_img_url = urlparse(url)
+        parsed_base_url = urlparse(self.base_url)
+        if parsed_img_url.path.startswith('/'):
+            base_url = '%(scheme)s://%(hostname)s' % {
+                'scheme': parsed_base_url.scheme,
+                'hostname': parsed_base_url.hostname
+            }
+        else:
+            base_url = self.base_url
+        return urljoin(base_url, url)
 
     # Mandatory fields
     @property
@@ -68,9 +80,12 @@ class WebRichObject(object):
             if self.info.get('maintype', 'text') not in ('text', 'text/html'):
                 self._type = self.info['maintype']
             else:
-                type_tag = self.soup.find('meta', property='og:type')
-                if type_tag is not None:
-                    self._type = type_tag.attrs['content']
+                if 'facebook.com/' in self.url and '/videos/' in self.url:
+                    self._type = 'video'
+                if self._type is None:
+                    type_tag = self.soup.find('meta', property='og:type')
+                    if type_tag is not None:
+                        self._type = type_tag.attrs['content']
                 if self._type is None:
                     self._type = 'website'
         return self._type
@@ -82,39 +97,37 @@ class WebRichObject(object):
             # If is image take its URL
             if self.info.get('maintype') == 'image':
                 self._image = self.base_url
-            else:
-                # Get from opengraph
+            # MediaWiki
+            if self._image is None and self.generator and 'MediaWiki' in self.generator:
+                thumb_tag = self.soup.find('div', attrs={'class': 'thumbinner'})
+                if thumb_tag is not None:
+                    img_tag = thumb_tag.find('img')
+                    if img_tag is not None:
+                        self._image = img_tag.attrs['src']
+            # Get from opengraph
+            if self._image is None:
                 image_tag = self.soup.find('meta', property='og:image')
                 if image_tag is not None:
                     self._image = image_tag.attrs['content']
-                # Get from favicon
-                if self._image is None:
-                    favicon_tag = self.soup.find('link',
-                                                 property="shortcut icon")
-                    if favicon_tag is not None:
-                        self._image = favicon_tag.attrs['href']
-                # 2nd try for favicon
-                if self._image is None:
-                    favicon_tag = self.soup.find('link', rel="icon")
-                    if favicon_tag is not None:
-                        self._image = favicon_tag.attrs['href']
-                # Get first image
-                if self._image is None:
-                    img_tag = self.soup.find('img', src=True)
-                    if img_tag is not None:
-                            self._image = img_tag.attrs['src']
-
-                if self._image is not None and not self._image.startswith('http'):
-                    parsed_img_url = urlparse(self._image)
-                    parsed_base_url = urlparse(self.base_url)
-                    if parsed_img_url.path.startswith('/'):
-                        base_url = '%(scheme)s://%(hostname)s' % {
-                            'scheme': parsed_base_url.scheme,
-                            'hostname': parsed_base_url.hostname
-                        }
-                    else:
-                        base_url = self.base_url
-                    self._image = urljoin(base_url, self._image)
+            # Get first image
+            if self._image is None:
+                img_tag = self.soup.find('img', src=True)
+                if img_tag is not None:
+                        self._image = img_tag.attrs['src']
+            # Get from favicon
+            if self._image is None:
+                favicon_tag = self.soup.find('link',
+                                             property="shortcut icon")
+                if favicon_tag is not None:
+                    self._image = favicon_tag.attrs['href']
+            # 2nd try for favicon
+            if self._image is None:
+                favicon_tag = self.soup.find('link', rel="icon")
+                if favicon_tag is not None:
+                    self._image = favicon_tag.attrs['href']
+            # Format URL
+            if self._image is not None and not self._image.startswith('http'):
+                self._image = self._format_url(self._image)
 
         return self._image
 
@@ -131,13 +144,31 @@ class WebRichObject(object):
 
     # Optional
     @property
+    def generator(self):
+        if not hasattr(self, '_generator'):
+            self._generator = None
+            generator_tag = self.soup.find('meta', attrs={'name': "generator"})
+            if generator_tag is not None:
+                self._generator = generator_tag.attrs['content']
+        return self._generator
+
+    @property
     def description(self):
         if not hasattr(self, '_description'):
             self._description = None
-            description_tag = self.soup.find('meta', property='og:description')
-            if description_tag is not None:
-                self._description = description_tag.attrs['content']
-            else:
+            # MediaWiki special case
+            if self.generator and 'MediaWiki' in self.generator:
+                description_text = self.soup.find('p').getText()
+                self._description = description_text[:100]
+                if len(self._description) < description_text:
+                    self._description += '...'
+            # from opengraph
+            if self._description is None:
+                description_tag = self.soup.find('meta', property='og:description')
+                if description_tag is not None:
+                    self._description = description_tag.attrs['content']
+            # from meta description
+            if self._description is None:
                 description_tag = self.soup.find('meta', attrs={'name': 'description'})
                 if description_tag is not None:
                     self._description = description_tag.attrs['content']
