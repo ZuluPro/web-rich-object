@@ -1,3 +1,4 @@
+from io import BytesIO
 try:
     from urllib.request import urlopen, Request
     from urllib.parse import urlparse, urljoin
@@ -5,9 +6,12 @@ except ImportError:
     from urllib2 import urlopen, Request
     from urlparse import urlparse, urljoin
 import bs4
+from pdfminer.pdfparser import PDFParser
+from pdfminer.pdfdocument import PDFDocument
 from web_rich_object import utils
 
 DEFAULT_USER_AGENT = 'Web Rich Object Client'
+DOWNLOAD_MAX_SIZE = 10*10**6
 
 
 class WebRichObject(object):
@@ -20,7 +24,7 @@ class WebRichObject(object):
             self.info = vars(response.info())
             self.request_headers = dict([h.strip().split(':', 1)
                                          for h in self.info['headers']])
-            self.html = response.read()
+            self.html = response.read(DOWNLOAD_MAX_SIZE)
         else:
             self.info = {}
             self.request_headers = {}
@@ -53,13 +57,33 @@ class WebRichObject(object):
             base_url = self.base_url
         return urljoin(base_url, url)
 
+    @property
+    def pdf_info(self):
+        if not hasattr(self, '_pdf_info'):
+            try:
+                fp = BytesIO(self.html)
+                parser = PDFParser(fp)
+                doc = PDFDocument(parser)
+                self._pdf_info = doc.info
+            except:
+                self._pdf_info = None
+        return self._pdf_info
+
     # Mandatory fields
     @property
     def title(self):
         if not hasattr(self, '_title'):
             self._title = None
-            # If HTML
-            if self.soup.find():
+            # PDF
+            if self.subtype == 'pdf' and self.pdf_info:
+                self._title = self.pdf_info[0].get('Title', None)
+                if not self._title:
+                    # From filename
+                    parsed_url = urlparse(self.url)
+                    if parsed_url.path.endswith('.pdf'):
+                        self._title = parsed_url.path.split('/')[-1]
+            # HTML
+            elif self.subtype == 'html' and self.soup.find():
                 # Try opengraph
                 title_tag = self.soup.find('meta', property='og:title')
                 if title_tag is not None:
@@ -80,17 +104,20 @@ class WebRichObject(object):
             self._type = None
             if self.info.get('maintype', 'text') not in ('text', 'text/html'):
                 self._type = self.info['maintype']
-            else:
-                if 'facebook.com/' in self.url and '/videos/' in self.url:
-                    self._type = 'video'
-                if self._type is None:
-                    type_tag = self.soup.find('meta', property='og:type')
-                    if type_tag is not None:
-                        self._type = type_tag.attrs['content']
+            # Guess embed video link
+            elif 'facebook.com/' in self.url and '/videos/' in self.url:
+                self._type = 'video'
+            elif self.info.get('maintype') == 'text':
+                og_type_tag = self.soup.find('meta', property='og:type')
+                if og_type_tag is not None:
+                    # Remove  prefix
+                    content = og_type_tag.attrs['content'].split(':')[-1]
+                    self._type = content
+                # Default for text is website
                 if self._type is None:
                     self._type = 'website'
-            # Remove og: prefix
-            self._type = self._type.replace('og:', '')
+            else:
+                self._type = self.info.get('type')
         return self._type
 
     @property
@@ -100,35 +127,37 @@ class WebRichObject(object):
             # If is image take its URL
             if self.info.get('maintype') == 'image':
                 self._image = self.base_url
-            # MediaWiki
-            if self._image is None and self.generator and 'MediaWiki' in self.generator:
-                thumb_tag = self.soup.find('div', attrs={'class': 'thumbinner'})
-                if thumb_tag is not None:
-                    img_tag = thumb_tag.find('img')
-                    if img_tag is not None:
-                        self._image = img_tag.attrs['src']
-            # Get from opengraph
-            if self._image is None:
-                image_tag = self.soup.find('meta', property='og:image')
-                if image_tag is not None:
-                    self._image = image_tag.attrs['content']
-            # Get biggest image
-            if self._image is None:
-                image_urls = [self._format_url(i.attrs['src'])
-                              for i in self.soup.find_all('img')
-                              if 'src' in i.attrs]
-                self._image = utils.get_biggest_image(image_urls)
-            # Get from favicon
-            if self._image is None:
-                favicon_tag = self.soup.find('link',
-                                             property="shortcut icon")
-                if favicon_tag is not None:
-                    self._image = favicon_tag.attrs['href']
-            # 2nd try for favicon
-            if self._image is None:
-                favicon_tag = self.soup.find('link', rel="icon")
-                if favicon_tag is not None:
-                    self._image = favicon_tag.attrs['href']
+            # HTML
+            elif self.subtype == 'html' and self.soup.find():
+                # MediaWiki
+                if self._image is None and self.generator and 'MediaWiki' in self.generator:
+                    thumb_tag = self.soup.find('div', attrs={'class': 'thumbinner'})
+                    if thumb_tag is not None:
+                        img_tag = thumb_tag.find('img')
+                        if img_tag is not None:
+                            self._image = img_tag.attrs['src']
+                # Get from opengraph
+                if self._image is None:
+                    image_tag = self.soup.find('meta', property='og:image')
+                    if image_tag is not None:
+                        self._image = image_tag.attrs['content']
+                # Get biggest image
+                if self._image is None:
+                    image_urls = [self._format_url(i.attrs['src'])
+                                  for i in self.soup.find_all('img')
+                                  if 'src' in i.attrs]
+                    self._image = utils.get_biggest_image(image_urls)
+                # Get from favicon
+                if self._image is None:
+                    favicon_tag = self.soup.find('link',
+                                                 property="shortcut icon")
+                    if favicon_tag is not None:
+                        self._image = favicon_tag.attrs['href']
+                # 2nd try for favicon
+                if self._image is None:
+                    favicon_tag = self.soup.find('link', rel="icon")
+                    if favicon_tag is not None:
+                        self._image = favicon_tag.attrs['href']
             # Format URL
             if self._image is not None and not self._image.startswith('http'):
                 self._image = self._format_url(self._image)
@@ -139,65 +168,92 @@ class WebRichObject(object):
     def url(self):
         if not hasattr(self, '_url'):
             self._url = None
-            url_tag = self.soup.find('meta', property='og:url')
-            if url_tag is not None:
-                self._url = url_tag.attrs['content']
+            if self.subtype == 'html' and self.soup.find():
+                url_tag = self.soup.find('meta', property='og:url')
+                if url_tag is not None:
+                    self._url = url_tag.attrs['content']
             if self._url is None:
                 self._url = self.base_url
         return self._url
 
     # Optional
     @property
+    def subtype(self):
+        if not hasattr(self, '_subtype'):
+            self._subtype = self.info['subtype']
+        return self._subtype
+
+    @property
     def generator(self):
         if not hasattr(self, '_generator'):
             self._generator = None
-            generator_tag = self.soup.find('meta', attrs={'name': "generator"})
-            if generator_tag is not None:
-                self._generator = generator_tag.attrs['content']
+            # PDF
+            if self.subtype == 'pdf' and self.pdf_info:
+                creator = self.pdf_info[0].get('Creator', None)
+                if creator:
+                    self._generator = creator
+                else:
+                    producer = self.pdf_info[0].get('Producer', None)
+                    if producer:
+                        self._generator = producer
+            # HTML
+            elif self.subtype == 'html' and self.soup.find():
+                generator_tag = self.soup.find('meta', attrs={'name': "generator"})
+                if generator_tag is not None:
+                    self._generator = generator_tag.attrs['content']
         return self._generator
 
     @property
     def description(self):
         if not hasattr(self, '_description'):
             self._description = None
-            # from opengraph
-            if self._description is None:
-                description_tag = self.soup.find('meta', property='og:description')
-                if description_tag is not None:
-                    self._description = description_tag.attrs['content']
-            # from meta description
-            if self._description is None:
-                description_tag = self.soup.find('meta', attrs={'name': 'description'})
-                if description_tag is not None:
-                    self._description = description_tag.attrs['content']
-            # Get first p
-            if self._description is None:
-                for p_tag in self.soup.find_all('p'):
-                    description_text = p_tag.getText()
-                    if not description_text.strip() or len(description_text) < 20:
-                        continue
-                    self._description = description_text[:100]
-                    if len(self._description) < description_text:
-                        self._description += '...'
-                    break
+            # PDF
+            if self.subtype == 'pdf' and self.pdf_info:
+                self._description = self.pdf_info[0].get('Subject', None)
+            # HTML
+            elif self.subtype == 'html' and self.soup.find():
+                # from opengraph
+                if self._description is None:
+                    description_tag = self.soup.find('meta', property='og:description')
+                    if description_tag is not None:
+                        self._description = description_tag.attrs['content']
+                # from meta description
+                if self._description is None:
+                    description_tag = self.soup.find('meta', attrs={'name': 'description'})
+                    if description_tag is not None:
+                        self._description = description_tag.attrs['content']
+                # Get first p
+                if self._description is None:
+                    for p_tag in self.soup.find_all('p'):
+                        description_text = p_tag.getText()
+                        if not description_text.strip() or len(description_text) < 20:
+                            continue
+                        self._description = description_text[:100]
+                        if len(self._description) < description_text:
+                            self._description += '...'
+                        break
         return self._description
 
     @property
     def audio(self):
         if not hasattr(self, '_audio'):
             self._audio = None
-            audio_tag = self.soup.find('meta', property='og:audio')
-            if audio_tag:
-                self._audio = audio_tag.attrs['content']
+            # HTML
+            if self.subtype == 'html' and self.soup.find():
+                audio_tag = self.soup.find('meta', property='og:audio')
+                if audio_tag:
+                    self._audio = audio_tag.attrs['content']
         return self._audio
 
     @property
     def determiner(self):
         if not hasattr(self, '_determiner'):
             self._determiner = None
-            determiner_tag = self.soup.find('meta', property='og:determiner')
-            if determiner_tag is not None:
-                self._determiner = determiner_tag.attrs['content']
+            # HTML
+            if self.subtype == 'html' and self.soup.find():
+                determiner_tag = self.soup.find('meta', property='og:determiner')
+                if determiner_tag is not None:
+                    self._determiner = determiner_tag.attrs['content']
             else:
                 self._determiner = 'auto'
         return self._determiner
@@ -206,17 +262,19 @@ class WebRichObject(object):
     def locale(self):
         if not hasattr(self, '_locale'):
             self._locale = None
-            # If HTML ; with open graph
-            locale_tag = self.soup.find('meta', property='og:locale')
-            if locale_tag is not None:
-                self._locale = locale_tag.attrs['content']
-            # Or get with HTML tag
-            if self._locale is None:
-                html_tag = self.soup.find('html')
-                if html_tag is not None:
-                    self._locale = html_tag.attrs.get('lang')
-                    if self._locale is None:
-                        self._locale = html_tag.attrs.get('xml:lang')
+            # HTML
+            if self.subtype == 'html' and self.soup.find():
+                # open graph
+                locale_tag = self.soup.find('meta', property='og:locale')
+                if locale_tag is not None:
+                    self._locale = locale_tag.attrs['content']
+                # Or get with HTML tag
+                if self._locale is None:
+                    html_tag = self.soup.find('html')
+                    if html_tag is not None:
+                        self._locale = html_tag.attrs.get('lang')
+                        if self._locale is None:
+                            self._locale = html_tag.attrs.get('xml:lang')
             # Get from response header
             if self._locale is None and self.request_headers:
                 self._locale = self.request_headers.get('Content-Language')
@@ -236,9 +294,12 @@ class WebRichObject(object):
     def site_name(self):
         if not hasattr(self, '_site_name'):
             self._site_name = None
-            site_name_tag = self.soup.find('meta', property='og:site_name')
-            if site_name_tag is not None:
-                self._site_name = site_name_tag.attrs['content']
+            # HTML
+            if self.subtype == 'html' and self.soup.find():
+                site_name_tag = self.soup.find('meta', property='og:site_name')
+                if site_name_tag is not None:
+                    self._site_name = site_name_tag.attrs['content']
+            # If unfound get from URL
             if self._site_name is None:
                 self._site_name = urlparse(self.base_url).hostname
         return self._site_name
@@ -247,100 +308,129 @@ class WebRichObject(object):
     def video(self):
         if not hasattr(self, '_video'):
             self._video = None
-            video_tag = self.soup.find('meta', property='og:video')
-            if video_tag is not None:
-                self._video = video_tag.attrs['content']
+            if self.subtype == 'html' and self.soup.find():
+                video_tag = self.soup.find('meta', property='og:video')
+                if video_tag is not None:
+                    self._video = video_tag.attrs['content']
         return self._video
 
     @property
     def images(self):
         if not hasattr(self, '_images'):
-            self._images = [
-                t.attrs['content']
-                for t in
-                self.soup.find_all('meta', property='og:image')
-            ]
+            self._images = []
+            if self.subtype == 'html' and self.soup.find():
+                self._images = [
+                    t.attrs['content']
+                    for t in
+                    self.soup.find_all('meta', property='og:image')
+                ]
         return self._images
 
     @property
     def author(self):
         if not hasattr(self, '_author'):
-            # from opengraph og:author
             self._author = None
-            # from og:author, XXX: Hack
-            og_author_tag = self.soup.find('meta', property='og:author')
-            if og_author_tag is not None:
-                self._author = og_author_tag.attrs['content']
-            # from opengraph article:author
-            if self._author is None:
-                og_author_article_tag = self.soup.find('meta', property='article:author')
-                if og_author_article_tag is not None:
-                    self._author = og_author_article_tag.attrs['content']
-            # from opengraph book:author
-            if self._author is None:
-                og_author_article_tag = self.soup.find('meta', property='book:author')
-                if og_author_article_tag is not None:
-                    self._author = og_author_article_tag.attrs['content']
-            # from HTML meta author
-            if self._author is None:
-                meta_author_tag = self.soup.find('meta', name='author')
-                if og_author_article_tag is not None:
-                    self._author = meta_author_tag.attrs['content']
+            # PDF
+            if self.subtype == 'pdf' and self.pdf_info:
+                self._author = self.pdf_info[0].get('Author', None)
+            # HTML
+            elif self.subtype == 'html' and self.soup.find():
+                # from og:author
+                og_author_tag = self.soup.find('meta', property='og:author')
+                if og_author_tag is not None:
+                    self._author = og_author_tag.attrs['content']
+                # from opengraph article:author
+                if self._author is None:
+                    og_author_article_tag = self.soup.find('meta', property='article:author')
+                    if og_author_article_tag is not None:
+                        self._author = og_author_article_tag.attrs['content']
+                # from opengraph book:author
+                if self._author is None:
+                    og_author_article_tag = self.soup.find('meta', property='book:author')
+                    if og_author_article_tag is not None:
+                        self._author = og_author_article_tag.attrs['content']
+                # from HTML meta author
+                if self._author is None:
+                    meta_author_tag = self.soup.find('meta', attrs={'name': 'author'})
+                    if og_author_article_tag is not None:
+                        self._author = meta_author_tag.attrs['content']
         return self._author
+
+    @property
+    def created_time(self):
+        if not hasattr(self, '_created_time'):
+            self._created_time = None
+            # PDF
+            if self.subtype == 'pdf' and self.pdf_info:
+                date_str = self.pdf_info[0].get('CreationDate', None)
+                if date_str:
+                    self._created_time = utils.parse_pdf_time(date_str)
+        return self._created_time
 
     @property
     def published_time(self):
         if not hasattr(self, '_published_time'):
             self._published_time = None
-            # from og:published_time, XXX: Hack
-            og_pt_tag = self.soup.find('meta', property='og:published_time')
-            if og_pt_tag is not None:
-                self._published_time = og_pt_tag.attrs['content']
-            # from opengraph article_published_time
-            if self.published_time is None:
-                og_article_pt_tag = self.soup.find('meta', property='article:published_time')
-                if og_article_pt_tag is not None:
-                    self._published_time = og_article_pt_tag.attrs['content']
-            # from html5 issued
-            if self.published_time is None:
-                og_issued_tag = self.soup.find('meta', name='issued')
-                if og_issued_tag is not None:
-                    self.published_time = og_issued_tag['content']
+            # HTML
+            if self.subtype == 'html' and self.soup.find():
+                # from og:published_time, XXX: Hack
+                og_pt_tag = self.soup.find('meta', property='og:published_time')
+                if og_pt_tag is not None:
+                    self._published_time = og_pt_tag.attrs['content']
+                # from opengraph article_published_time
+                if self.published_time is None:
+                    og_article_pt_tag = self.soup.find('meta', property='article:published_time')
+                    if og_article_pt_tag is not None:
+                        self._published_time = og_article_pt_tag.attrs['content']
+                # from html5 issued
+                if self.published_time is None:
+                    issued_tag = self.soup.find('meta', attrs={'name': 'issued'})
+                    if issued_tag is not None:
+                        self.published_time = issued_tag['content']
         return self._published_time
 
     @property
     def modified_time(self):
         if not hasattr(self, '_modified_time'):
             self._modified_time = None
-            # from og:modified_time, XXX: Hack
-            og_md_tag = self.soup.find('meta', property='og:modified_time')
-            if og_md_tag is not None:
-                self._modified_time = og_md_tag.attrs['content']
-            # from opengraph article_modified_time
-            if self.modified_time is None:
-                og_article_md_tag = self.soup.find('meta', property='article:modified_time')
-                if og_article_md_tag is not None:
-                    self._modified_time = og_article_md_tag.attrs['content']
-            # from html5 issued
-            if self.modified_time is None:
-                og_issued_tag = self.soup.find('meta', name='modified')
-                if og_issued_tag is not None:
-                    self.modified_time = og_issued_tag['content']
+            # PDF
+            if self.subtype == 'pdf' and self.pdf_info:
+                date_str = self.pdf_info[0].get('ModDate', None)
+                if date_str:
+                    self._modified_time = utils.parse_pdf_time(date_str)
+            # HTML
+            elif self.subtype == 'html' and self.soup.find():
+                # from og:modified_time, XXX: Hack
+                og_md_tag = self.soup.find('meta', property='og:modified_time')
+                if og_md_tag is not None:
+                    self._modified_time = og_md_tag.attrs['content']
+                # from opengraph article_modified_time
+                if self.modified_time is None:
+                    og_article_md_tag = self.soup.find('meta', property='article:modified_time')
+                    if og_article_md_tag is not None:
+                        self._modified_time = og_article_md_tag.attrs['content']
+                # from html5 issued
+                if self.modified_time is None:
+                    issued_tag = self.soup.find('meta', attrs={'name': 'modified'})
+                    if issued_tag is not None:
+                        self.modified_time = issued_tag['content']
         return self._modified_time
 
     @property
     def expiration_time(self):
         if not hasattr(self, '_expiration_time'):
             self._expiration_time = None
-            # from og:expiration_time, XXX: Hack
-            og_md_tag = self.soup.find('meta', property='og:expiration_time')
-            if og_md_tag is not None:
-                self._expiration_time = og_md_tag.attrs['content']
-            # from opengraph article_expiration_time
-            if self.expiration_time is None:
-                og_article_md_tag = self.soup.find('meta', property='article:expiration_time')
-                if og_article_md_tag is not None:
-                    self._expiration_time = og_article_md_tag.attrs['content']
+            # HTML
+            if self.subtype == 'html' and self.soup.find():
+                # from og:expiration_time, XXX: Hack
+                og_md_tag = self.soup.find('meta', property='og:expiration_time')
+                if og_md_tag is not None:
+                    self._expiration_time = og_md_tag.attrs['content']
+                # from opengraph article_expiration_time
+                if self.expiration_time is None:
+                    og_article_md_tag = self.soup.find('meta', property='article:expiration_time')
+                    if og_article_md_tag is not None:
+                        self._expiration_time = og_article_md_tag.attrs['content']
         return self._expiration_time
 
     @property
@@ -362,15 +452,21 @@ class WebRichObject(object):
     def tags(self):
         if not hasattr(self, '_tags'):
             self._tags = []
-            # from og:tag, XXX: Hack
-            og_tag_tags = self.soup.findall('meta', property='og:tag')
-            for tag in og_tag_tags:
-                og_tag_tags.append(tag.attrs['og:tag'])
-            # from opengraph article:tags
-            og_tag_tags = self.soup.findall('meta', property='article:tag')
-            for tag in og_tag_tags:
-                og_tag_tags.append(tag.attrs['og:tag'])
-        return self._section
+            # PDF
+            if self.subtype == 'pdf' and self.pdf_info:
+                keywords = self.pdf_info[0].get('Keywords', '')
+                self._tags.extend(keywords.split())
+            # HTML
+            elif self.subtype == 'html' and self.soup.find():
+                # from og:tag, XXX: Hack
+                og_tag_tags = self.soup.findall('meta', property='og:tag')
+                for tag in og_tag_tags:
+                    og_tag_tags.append(tag.attrs['og:tag'])
+                # from opengraph article:tags
+                og_tag_tags = self.soup.findall('meta', property='article:tag')
+                for tag in og_tag_tags:
+                    og_tag_tags.append(tag.attrs['og:tag'])
+        return self._tags
 
     @property
     def struct_image(self):
