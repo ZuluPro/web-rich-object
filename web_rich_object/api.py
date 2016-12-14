@@ -5,6 +5,7 @@ except ImportError:
     from urllib2 import urlopen, Request
     from urlparse import urlparse, urljoin
 import bs4
+from web_rich_object import utils
 
 DEFAULT_USER_AGENT = 'Web Rich Object Client'
 
@@ -69,8 +70,8 @@ class WebRichObject(object):
                     if title_tag is not None:
                         self._title = title_tag.text
             # If no title, take the URL
-            if self._title is None and self.base_url is not None:
-                self._title = self.base_url
+            if not self._title and self.site_name is not None:
+                self._title = self.site_name
         return self._title
 
     @property
@@ -88,6 +89,8 @@ class WebRichObject(object):
                         self._type = type_tag.attrs['content']
                 if self._type is None:
                     self._type = 'website'
+            # Remove og: prefix
+            self._type = self._type.replace('og:', '')
         return self._type
 
     @property
@@ -109,11 +112,12 @@ class WebRichObject(object):
                 image_tag = self.soup.find('meta', property='og:image')
                 if image_tag is not None:
                     self._image = image_tag.attrs['content']
-            # Get first image
+            # Get biggest image
             if self._image is None:
-                img_tag = self.soup.find('img', src=True)
-                if img_tag is not None:
-                        self._image = img_tag.attrs['src']
+                image_urls = [self._format_url(i.attrs['src'])
+                              for i in self.soup.find_all('img')
+                              if 'src' in i.attrs]
+                self._image = utils.get_biggest_image(image_urls)
             # Get from favicon
             if self._image is None:
                 favicon_tag = self.soup.find('link',
@@ -156,12 +160,6 @@ class WebRichObject(object):
     def description(self):
         if not hasattr(self, '_description'):
             self._description = None
-            # MediaWiki special case
-            if self.generator and 'MediaWiki' in self.generator:
-                description_text = self.soup.find('p').getText()
-                self._description = description_text[:100]
-                if len(self._description) < description_text:
-                    self._description += '...'
             # from opengraph
             if self._description is None:
                 description_tag = self.soup.find('meta', property='og:description')
@@ -172,6 +170,16 @@ class WebRichObject(object):
                 description_tag = self.soup.find('meta', attrs={'name': 'description'})
                 if description_tag is not None:
                     self._description = description_tag.attrs['content']
+            # Get first p
+            if self._description is None:
+                for p_tag in self.soup.find_all('p'):
+                    description_text = p_tag.getText()
+                    if not description_text.strip() or len(description_text) < 20:
+                        continue
+                    self._description = description_text[:100]
+                    if len(self._description) < description_text:
+                        self._description += '...'
+                    break
         return self._description
 
     @property
