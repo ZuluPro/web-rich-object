@@ -2,6 +2,7 @@ from __future__ import unicode_literals
 
 import unittest
 import re
+from datetime import datetime
 import warnings
 
 from web_rich_object.api import WebRichObject as WRO
@@ -16,6 +17,7 @@ TEST_URLS = [
     ('https://en.wikipedia.org/wiki/Main_Page', {'title': 'Wikipedia, the free encyclopedia', 'url': 'https://en.wikipedia.org/wiki/Main_Page', 'site_name': 'en.wikipedia.org', 'type': 'website', 'subtype': 'html', 'tags': []}),
     ('https://en.wikipedia.org/wiki/', {'title': 'Wikipedia, the free encyclopedia', 'url': 'https://en.wikipedia.org/wiki/', 'site_name': 'en.wikipedia.org', 'type': 'website', 'subtype': 'html', 'tags': []}),
     ('https://en.wikipedia.org/wiki/Portugal', {'title': 'Portugal - Wikipedia', 'url': 'https://en.wikipedia.org/wiki/Portugal', 'site_name': 'en.wikipedia.org', 'type': 'website', 'subtype': 'html', 'tags': []}),
+    ('https://www.revealnews.org/article/uber-said-it-protects-you-from-spying-security-sources-say-otherwise/', {'title': "Uber said it protects you from spying. Security sources say otherwise", 'url': 'https://www.revealnews.org/article/uber-said-it-protects-you-from-spying-security-sources-say-otherwise/', 'site_name': 'Reveal', 'type': 'article', 'subtype': 'html', 'tags': ['privacy', 'surveillance', 'uber'], 'category': None, 'published_time': datetime(2016, 12, 12, 8, 0, 15), 'modified_time': datetime(2016, 12, 12, 23, 40, 26)}),
     # Image
     ('https://en.wikipedia.org/static/images/project-logos/enwiki-2x.png', {'title': 'en.wikipedia.org', 'url': 'https://en.wikipedia.org/static/images/project-logos/enwiki-2x.png', 'site_name': 'en.wikipedia.org', 'type': 'image', 'subtype': 'png', 'tags': []}),
     ('https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif', {'title': 'upload.wikimedia.org', 'url': 'https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif', 'site_name': 'upload.wikimedia.org', 'type': 'image', 'subtype': 'gif', 'tags': []}),

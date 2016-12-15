@@ -1,4 +1,4 @@
-import chardet
+import json
 from io import BytesIO
 try:
     from urllib.request import urlopen, Request
@@ -6,9 +6,12 @@ try:
 except ImportError:
     from urllib2 import urlopen, Request
     from urlparse import urlparse, urljoin
+
 import bs4
+import chardet
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument
+
 from web_rich_object import utils
 
 DEFAULT_USER_AGENT = 'Web Rich Object Client'
@@ -72,6 +75,19 @@ class WebRichObject(object):
                 self._pdf_info = None
         return self._pdf_info
 
+    @property
+    def contextly_info(self):
+        if not hasattr(self, '_contextly_info'):
+            self._contextly_info = {}
+            contextly_tag = self.soup.find('meta', attrs={'name': 'contextly-page'})
+            if contextly_tag is not None and contextly_tag.attrs.get('content'):
+                self._contextly_info = json.loads(contextly_tag.attrs['content'])
+                if self._contextly_info.get('pub_date'):
+                    self._contextly_info['pub_date'] = utils.parse_contextly_time(self._contextly_info['pub_date'])
+                if self._contextly_info.get('mod_date'):
+                    self._contextly_info['mod_date'] = utils.parse_contextly_time(self._contextly_info['mod_date'])
+        return self._contextly_info
+
     # Mandatory fields
     @property
     def title(self):
@@ -101,6 +117,10 @@ class WebRichObject(object):
                     title_tag = self.soup.find('title')
                     if title_tag is not None:
                         self._title = title_tag.text
+                # Get from contextly-data
+                if (self._title is None and self.contextly_info and
+                        self.contextly_info.get('title')):
+                    self._title = self.contextly_info['title']
             # If no title, take the URL
             if not self._title and self.site_name is not None:
                 self._title = self.site_name
@@ -124,6 +144,10 @@ class WebRichObject(object):
                 # Default for text is website
                 if self._type is None:
                     self._type = 'website'
+                # Get from contextly-data
+                if (self._type is None and self.contextly_info and
+                        self.contextly_info.get('type')):
+                    self._type = self.contextly_info['type']
             else:
                 self._type = self.info.get('type')
         return self._type
@@ -149,6 +173,10 @@ class WebRichObject(object):
                     image_tag = self.soup.find('meta', property='og:image')
                     if image_tag is not None:
                         self._image = image_tag.attrs['content']
+                # Get from contextly-data
+                if (self._image is None and self.contextly_info and
+                        self.contextly_info.get('image')):
+                    self._image = self.contextly_info['image']
                 # Get biggest image
                 if self._image is None:
                     image_urls = [self._format_url(i.attrs['src'])
@@ -180,6 +208,10 @@ class WebRichObject(object):
                 url_tag = self.soup.find('meta', property='og:url')
                 if url_tag is not None:
                     self._url = url_tag.attrs['content']
+                # Get from contextly-data
+                if (self._url is None and self.contextly_info and
+                        self.contextly_info.get('url')):
+                    self._url = self.contextly_info['url']
             if self._url is None:
                 self._url = self.base_url
         return self._url
@@ -357,6 +389,12 @@ class WebRichObject(object):
                     og_author_article_tag = self.soup.find('meta', property='book:author')
                     if og_author_article_tag is not None:
                         self._author = og_author_article_tag.attrs['content']
+                # Get from contextly-data
+                if self._author is None and self.contextly_info:
+                    if self.contextly_info.get('author_display_name'):
+                        self._author = self.contextly_info['author_display_name']
+                    elif self.contextly_info.get('author_name'):
+                        self._author = self.contextly_info['author_name']
                 # from HTML meta author
                 if self._author is None:
                     meta_author_tag = self.soup.find('meta', attrs={'name': 'author'})
@@ -384,12 +422,18 @@ class WebRichObject(object):
                 # from og:published_time, XXX: Hack
                 og_pt_tag = self.soup.find('meta', property='og:published_time')
                 if og_pt_tag is not None:
-                    self._published_time = og_pt_tag.attrs['content']
+                    date_str = og_pt_tag.attrs['content']
+                    self._published_time = utils.parse_opengraph_time(date_str)
                 # from opengraph article_published_time
                 if self.published_time is None:
                     og_article_pt_tag = self.soup.find('meta', property='article:published_time')
                     if og_article_pt_tag is not None:
-                        self._published_time = og_article_pt_tag.attrs['content']
+                        date_str = og_article_pt_tag.attrs['content']
+                        self._published_time = utils.parse_opengraph_time(date_str)
+                # Get from contextly-data
+                if (self._published_time is None and self.contextly_info and
+                        self.contextly_info.get('pub_date')):
+                    self._published_time = self.contextly_info['pub_date']
                 # from html5 issued
                 if self.published_time is None:
                     issued_tag = self.soup.find('meta', attrs={'name': 'issued'})
@@ -411,12 +455,18 @@ class WebRichObject(object):
                 # from og:modified_time, XXX: Hack
                 og_md_tag = self.soup.find('meta', property='og:modified_time')
                 if og_md_tag is not None:
-                    self._modified_time = og_md_tag.attrs['content']
+                    date_str = og_md_tag.attrs['content']
+                    self._modified_time = utils.parse_opengraph_time(date_str)
                 # from opengraph article_modified_time
                 if self.modified_time is None:
                     og_article_md_tag = self.soup.find('meta', property='article:modified_time')
                     if og_article_md_tag is not None:
-                        self._modified_time = og_article_md_tag.attrs['content']
+                        date_str = og_article_md_tag.attrs['content']
+                        self._modified_time = utils.parse_opengraph_time(date_str)
+                # Get from contextly-data
+                if (self._modified_time is None and self.contextly_info and
+                        self.contextly_info.get('mod_date')):
+                    self._modified_time = self.contextly_info['mod_date']
                 # from html5 issued
                 if self.modified_time is None:
                     issued_tag = self.soup.find('meta', attrs={'name': 'modified'})
@@ -445,16 +495,24 @@ class WebRichObject(object):
     def section(self):
         if not hasattr(self, '_section'):
             self._section = None
-            # from og:section, XXX: Hack
-            og_section_tag = self.soup.find('meta', property='og:section')
-            if og_section_tag is not None:
-                self._expiration_time = og_section_tag.attrs['content']
-            # from opengraph article:section
-            if self.expiration_time is None:
-                og_article_section_tag = self.soup.find('meta', property='article:section')
-                if og_article_section_tag is not None:
-                    self._expiration_time = og_article_section_tag.attrs['content']
+            # HTML
+            if self.subtype == 'html' and self.soup.find():
+                # from og:section, XXX: Hack
+                og_section_tag = self.soup.find('meta', property='og:section')
+                if og_section_tag is not None:
+                    self._expiration_time = og_section_tag.attrs['content']
+                # from opengraph article:section
+                if self.expiration_time is None:
+                    og_article_section_tag = self.soup.find('meta', property='article:section')
+                    if og_article_section_tag is not None:
+                        self._expiration_time = og_article_section_tag.attrs['content']
+                # Get from contextly-data
+                if (self._section is None and self.contextly_info and
+                        self.contextly_info.get('categories')):
+                    self._section = self.contextly_info['categories'][0]
         return self._section
+
+    category = section
 
     @property
     def tags(self):
@@ -474,6 +532,10 @@ class WebRichObject(object):
                 og_tag_tags = self.soup.find_all('meta', property='article:tag')
                 for tag in og_tag_tags:
                     og_tag_tags.append(tag.attrs['og:tag'])
+                # Get from contextly-data
+                if (not self._tags and self.contextly_info and
+                        self.contextly_info.get('tags')):
+                    self._tags = self.contextly_info['tags']
         return self._tags
 
     @property

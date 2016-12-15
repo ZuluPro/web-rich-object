@@ -34,3 +34,15 @@ def parse_pdf_time(date_str):
     offset = int(UTC_OFFSET_REG.sub(r'\1', date_str))
     utc_offset = timedelta(seconds=offset*3600)
     return date + utc_offset
+
+
+def parse_opengraph_time(date_str):
+    date = datetime.strptime(date_str[:-6], '%Y-%m-%dT%H:%M:%S')
+    offset = int(UTC_OFFSET_REG.sub(r'\1', date_str))
+    utc_offset = timedelta(seconds=offset*3600)
+    return date + utc_offset
+
+
+def parse_contextly_time(date_str):
+    date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+    return date
