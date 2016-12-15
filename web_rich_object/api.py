@@ -1,3 +1,4 @@
+import chardet
 from io import BytesIO
 try:
     from urllib.request import urlopen, Request
@@ -78,7 +79,12 @@ class WebRichObject(object):
             self._title = None
             # PDF
             if self.subtype == 'pdf' and self.pdf_info:
-                self._title = self.pdf_info[0].get('Title', None)
+                raw_title = self.pdf_info[0].get('Title', None)
+                if raw_title:
+                    charset = chardet.detect(raw_title)['encoding']
+                    if charset not in ('ascii', 'utf8'):
+                        raw_title = raw_title[2:]
+                    self._title = raw_title.decode(charset, 'ignore')
                 if not self._title:
                     # From filename
                     parsed_url = urlparse(self.url)
@@ -461,11 +467,11 @@ class WebRichObject(object):
             # HTML
             elif self.subtype == 'html' and self.soup.find():
                 # from og:tag, XXX: Hack
-                og_tag_tags = self.soup.findall('meta', property='og:tag')
+                og_tag_tags = self.soup.find_all('meta', property='og:tag')
                 for tag in og_tag_tags:
                     og_tag_tags.append(tag.attrs['og:tag'])
                 # from opengraph article:tags
-                og_tag_tags = self.soup.findall('meta', property='article:tag')
+                og_tag_tags = self.soup.find_all('meta', property='article:tag')
                 for tag in og_tag_tags:
                     og_tag_tags.append(tag.attrs['og:tag'])
         return self._tags

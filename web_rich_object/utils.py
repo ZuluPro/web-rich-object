@@ -1,11 +1,11 @@
 import re
 from datetime import datetime, timedelta
+from io import BytesIO
 try:
     from urllib.request import urlopen
 except ImportError:
     from urllib2 import urlopen
 from PIL import Image
-from django.utils.six import BytesIO
 
 UTC_OFFSET_REG = re.compile(r'.*([+-]\d\d).*')
 

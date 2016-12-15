@@ -1,0 +1,28 @@
+language: python
+python:
+    - 2.7
+    - pypy
+
+matrix:
+  fast_finish: true
+  include:
+    - env: ENV=lint
+      python: 2.7
+      before_script: TOX_ENV=lint
+      after_success: true
+    - env: ENV=functional
+      python: 2.7
+      before_script: TOX_ENV=functional
+  allow_failures:
+    - python: pypy
+
+install:
+  - pip install tox
+  - TOX_ENV=py$TRAVIS_PYTHON_VERSION
+
+after_success:
+  - tox -e $TOX_ENV -- pip install coveralls 
+  - tox -e $TOX_ENV -- coveralls $COVERALLS_OPTION
+
+script:
+  - tox -e $TOX_ENV
