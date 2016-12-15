@@ -22,8 +22,10 @@ class WebRichObject(object):
         if url is not None:
             response = self.urlopen(url, headers=headers)
             self.info = vars(response.info())
-            self.request_headers = dict([h.strip().split(':', 1)
-                                         for h in self.info['headers']])
+            self.request_headers = dict([
+                [i.strip() for i in h.split(':', 1)]
+                for h in self.info['headers']
+            ])
             self.html = response.read(DOWNLOAD_MAX_SIZE)
         else:
             self.info = {}
@@ -254,8 +256,8 @@ class WebRichObject(object):
                 determiner_tag = self.soup.find('meta', property='og:determiner')
                 if determiner_tag is not None:
                     self._determiner = determiner_tag.attrs['content']
-            else:
-                self._determiner = 'auto'
+        if self._determiner is None:
+            self._determiner = 'auto'
         return self._determiner
 
     @property
@@ -275,9 +277,9 @@ class WebRichObject(object):
                         self._locale = html_tag.attrs.get('lang')
                         if self._locale is None:
                             self._locale = html_tag.attrs.get('xml:lang')
-            # Get from response header
-            if self._locale is None and self.request_headers:
-                self._locale = self.request_headers.get('Content-Language')
+                # Get from response header
+                if self._locale is None and self.request_headers:
+                    self._locale = self.request_headers.get('Content-Language')
         return self._locale
 
     @property
