@@ -88,6 +88,13 @@ class WebRichObject(object):
                     self._contextly_info['mod_date'] = utils.parse_contextly_time(self._contextly_info['mod_date'])
         return self._contextly_info
 
+    def _valid_string(self, value):
+        if not value:
+            return None
+        if value.startswith('{{') and value.endswith('}}'):
+            return None
+        return value.strip()
+
     # Mandatory fields
     @property
     def title(self):
@@ -111,16 +118,18 @@ class WebRichObject(object):
                 # Try opengraph
                 title_tag = self.soup.find('meta', property='og:title')
                 if title_tag is not None:
-                    self._title = title_tag.attrs['content']
+                    title = self._valid_string(title_tag.attrs.get('content'))
+                    if title:
+                        self._title = title_tag.attrs['content']
                 # Check with <title>
                 if self._title is None:
                     title_tag = self.soup.find('title')
                     if title_tag is not None:
-                        self._title = title_tag.text
+                        self._title = self._valid_string(title_tag.text)
                 # Get from contextly-data
                 if (self._title is None and self.contextly_info and
                         self.contextly_info.get('title')):
-                    self._title = self.contextly_info['title']
+                    self._title = self._valid_string(self.contextly_info['title'])
             # If no title, take the URL
             if not self._title and self.site_name is not None:
                 self._title = self.site_name
@@ -138,18 +147,24 @@ class WebRichObject(object):
             elif self.info.get('maintype') == 'text':
                 og_type_tag = self.soup.find('meta', property='og:type')
                 if og_type_tag is not None:
-                    # Remove  prefix
-                    content = og_type_tag.attrs['content'].split(':')[-1]
-                    self._type = content
+                    type_ = og_type_tag.attrs['content']
+                    type_ = self._valid_string(type_)
+                    if type_ is not None:
+                        # Remove  prefix
+                        content = type_.split(':')[-1]
+                        self._type = content
                 # Default for text is website
                 if self._type is None:
                     self._type = 'website'
                 # Get from contextly-data
                 if (self._type is None and self.contextly_info and
                         self.contextly_info.get('type')):
+                    type_ = self._valid_string(self.contextly_info['type'])
                     self._type = self.contextly_info['type']
             else:
                 self._type = self.info.get('type')
+            if self._type:
+                self._type = self._type.lower()
         return self._type
 
     @property
@@ -171,12 +186,14 @@ class WebRichObject(object):
                 # Get from opengraph
                 if self._image is None:
                     image_tag = self.soup.find('meta', property='og:image')
-                    if image_tag is not None:
-                        self._image = image_tag.attrs['content']
+                    if image_tag is not None and image_tag.attrs.get('content'):
+                        image = self._valid_string(image_tag.attrs['content'])
+                        self._image = image
                 # Get from contextly-data
                 if (self._image is None and self.contextly_info and
                         self.contextly_info.get('image')):
-                    self._image = self.contextly_info['image']
+                    image = self._valid_string(self.contextly_info['image'])
+                    self._image = image
                 # Get biggest image
                 if self._image is None:
                     image_urls = [self._format_url(i.attrs['src'])
@@ -206,12 +223,12 @@ class WebRichObject(object):
             self._url = None
             if self.subtype == 'html' and self.soup.find():
                 url_tag = self.soup.find('meta', property='og:url')
-                if url_tag is not None:
-                    self._url = url_tag.attrs['content']
+                if url_tag is not None and url_tag.attrs.get('content'):
+                    self._url = self._valid_string(url_tag.attrs['content'])
                 # Get from contextly-data
                 if (self._url is None and self.contextly_info and
                         self.contextly_info.get('url')):
-                    self._url = self.contextly_info['url']
+                    self._url = self._valid_string(self.contextly_info['url'])
             if self._url is None:
                 self._url = self.base_url
         return self._url
@@ -254,14 +271,16 @@ class WebRichObject(object):
             elif self.subtype == 'html' and self.soup.find():
                 # from opengraph
                 if self._description is None:
-                    description_tag = self.soup.find('meta', property='og:description')
-                    if description_tag is not None:
-                        self._description = description_tag.attrs['content']
+                    desc_tag = self.soup.find('meta', property='og:description')
+                    if desc_tag is not None and desc_tag.attrs.get('content'):
+                        desc = self._valid_string(desc_tag.attrs['content'])
+                        self._description = desc
                 # from meta description
                 if self._description is None:
-                    description_tag = self.soup.find('meta', attrs={'name': 'description'})
-                    if description_tag is not None:
-                        self._description = description_tag.attrs['content']
+                    desc_tag = self.soup.find('meta', attrs={'name': 'description'})
+                    if desc_tag is not None and desc_tag.attrs.get('content'):
+                        desc = self._valid_string(desc_tag.attrs['content'])
+                        self._description = desc
                 # Get first p
                 if self._description is None:
                     for p_tag in self.soup.find_all('p'):

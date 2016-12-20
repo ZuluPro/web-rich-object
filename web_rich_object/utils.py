@@ -30,19 +30,31 @@ def get_biggest_image(urls):
 
 
 def parse_pdf_time(date_str):
-    date = datetime.strptime(date_str[2:-7], '%Y%m%d%H%M%S')
-    offset = int(UTC_OFFSET_REG.sub(r'\1', date_str))
-    utc_offset = timedelta(seconds=offset*3600)
-    return date + utc_offset
+    try:
+        date = datetime.strptime(date_str[2:-7], '%Y%m%d%H%M%S')
+        offset = int(UTC_OFFSET_REG.sub(r'\1', date_str))
+        utc_offset = timedelta(seconds=offset*3600)
+        return date + utc_offset
+    except ValueError:
+        return None
 
 
 def parse_opengraph_time(date_str):
-    date = datetime.strptime(date_str[:-6], '%Y-%m-%dT%H:%M:%S')
-    offset = int(UTC_OFFSET_REG.sub(r'\1', date_str))
-    utc_offset = timedelta(seconds=offset*3600)
-    return date + utc_offset
+    try:
+        try:
+            date = datetime.strptime(date_str[:-6], '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            date = datetime.strptime(date_str[:-6].strip(), '%d/%m/%Y %H:%M:%S')
+        offset = int(UTC_OFFSET_REG.sub(r'\1', date_str))
+        utc_offset = timedelta(seconds=offset*3600)
+        return date + utc_offset
+    except (ValueError, NameError):
+        return None
 
 
 def parse_contextly_time(date_str):
-    date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-    return date
+    try:
+        date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        return date
+    except ValueError:
+        return None
