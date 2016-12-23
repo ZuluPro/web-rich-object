@@ -1,3 +1,4 @@
+import os
 import json
 from io import BytesIO
 try:
@@ -15,8 +16,8 @@ from pdfminer.pdfdocument import PDFDocument
 
 from web_rich_object import utils
 
-DEFAULT_USER_AGENT = 'Web Rich Object Client'
-DOWNLOAD_MAX_SIZE = 10*10**6
+DEFAULT_USER_AGENT = os.environ.get('WRO_USER_AGENT', 'Web Rich Object Client')
+DOWNLOAD_MAX_SIZE = int(os.environ.get('WRO_DOWNLOAD_MAX_SIZE', 10*10**6))
 
 
 class WebRichObject(object):
