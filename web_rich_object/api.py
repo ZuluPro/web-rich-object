@@ -3,8 +3,9 @@ from io import BytesIO
 try:
     from urllib.request import urlopen, Request
     from urllib.parse import urlparse, urljoin
+    from urllib import unquote
 except ImportError:
-    from urllib2 import urlopen, Request
+    from urllib2 import urlopen, Request, unquote
     from urlparse import urlparse, urljoin
 
 import bs4
@@ -52,9 +53,9 @@ class WebRichObject(object):
         return self._soup
 
     def _format_url(self, url):
-        parsed_img_url = urlparse(url)
+        parsed_url = urlparse(url)
         parsed_base_url = urlparse(self.base_url)
-        if parsed_img_url.path.startswith('/'):
+        if parsed_url.path.startswith('/'):
             base_url = '%(scheme)s://%(hostname)s' % {
                 'scheme': parsed_base_url.scheme,
                 'hostname': parsed_base_url.hostname
@@ -108,11 +109,6 @@ class WebRichObject(object):
                     if charset not in ('ascii', 'utf8'):
                         raw_title = raw_title[2:]
                     self._title = raw_title.decode(charset, 'ignore')
-                if not self._title:
-                    # From filename
-                    parsed_url = urlparse(self.url)
-                    if parsed_url.path.endswith('.pdf'):
-                        self._title = parsed_url.path.split('/')[-1]
             # HTML
             elif self.subtype == 'html' and self.soup.find():
                 # Try opengraph
@@ -130,6 +126,12 @@ class WebRichObject(object):
                 if (self._title is None and self.contextly_info and
                         self.contextly_info.get('title')):
                     self._title = self._valid_string(self.contextly_info['title'])
+            # From file name
+            if not self._title and not self.subtype == 'html':
+                parsed_url = urlparse(self.base_url)
+                filename = parsed_url.path.split('/')[-1:]
+                if filename:
+                    self._title = unquote(filename[0])
             # If no title, take the URL
             if not self._title and self.site_name is not None:
                 self._title = self.site_name
@@ -323,7 +325,7 @@ class WebRichObject(object):
             self._locale = None
             # HTML
             if self.subtype == 'html' and self.soup.find():
-                # open graph
+                # from open graph
                 locale_tag = self.soup.find('meta', property='og:locale')
                 if locale_tag is not None:
                     self._locale = locale_tag.attrs['content']
@@ -337,6 +339,8 @@ class WebRichObject(object):
                 # Get from response header
                 if self._locale is None and self.request_headers:
                     self._locale = self.request_headers.get('Content-Language')
+            if self._locale is not None:
+                self._locale = self._locale.upper()
         return self._locale
 
     @property
@@ -368,9 +372,31 @@ class WebRichObject(object):
         if not hasattr(self, '_video'):
             self._video = None
             if self.subtype == 'html' and self.soup.find():
-                video_tag = self.soup.find('meta', property='og:video')
+                # From open graph
+                og_video_tag = self.soup.find('meta', property='og:video')
+                if og_video_tag is not None:
+                    self._video = og_video_tag.attrs['content']
+                # From open graph video url
+                if self._video is None:
+                    og_video_tag = self.soup.find('meta', property='og:video:url')
+                    if og_video_tag is not None:
+                        self._video = og_video_tag.attrs['content']
+                # From open graph video secure url
+                if self._video is None:
+                    og_video_tag = self.soup.find('meta', property='og:video:secure_url')
+                    if og_video_tag is not None:
+                        self._video = og_video_tag.attrs['content']
+                # From HTML5 video_tag
+                video_tag = self.soup.find('video')
                 if video_tag is not None:
-                    self._video = video_tag.attrs['content']
+                    source_tag = video_tag.find('source')
+                    if source_tag is not None:
+                        self._video = source_tag.attrs['src']
+            elif self.info['maintype'] == 'video':
+                self._video = self.base_url
+            # Format URL
+            if self._video is not None and not self._video.startswith('http'):
+                self._video = self._format_url(self._video)
         return self._video
 
     @property
@@ -546,11 +572,15 @@ class WebRichObject(object):
                 # from og:tag, XXX: Hack
                 og_tag_tags = self.soup.find_all('meta', property='og:tag')
                 for tag in og_tag_tags:
-                    og_tag_tags.append(tag.attrs['og:tag'])
+                    self._tags.append(tag.attrs['content'])
                 # from opengraph article:tags
-                og_tag_tags = self.soup.find_all('meta', property='article:tag')
-                for tag in og_tag_tags:
-                    og_tag_tags.append(tag.attrs['og:tag'])
+                article_tag_tags = self.soup.find_all('meta', property='article:tag')
+                for tag in article_tag_tags:
+                    self._tags.append(tag.attrs['content'])
+                # from opengraph article:tags
+                video_tag_tags = self.soup.find_all('meta', property='video:tag')
+                for tag in video_tag_tags:
+                    self._tags.append(tag.attrs['content'])
                 # Get from contextly-data
                 if (not self._tags and self.contextly_info and
                         self.contextly_info.get('tags')):

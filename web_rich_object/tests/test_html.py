@@ -203,7 +203,7 @@ class WebRichObjectSiteNameTest(utils.BaseWebRichObjectTestCase):
 class WebRichObjectVideoTest(utils.BaseWebRichObjectTestCase):
     def test_from_og_video(self):
         wro = WRO(self.url)
-        self.assertEqual(wro.video, 'foo.mp4')
+        self.assertEqual(wro.video, 'http://example.com/foo.mp4')
     test_from_og_video.mock_attrs = {
         'return_value.read.return_value': '<html><meta property="og:video" content="foo.mp4"/></html>',
         'return_value.info.return_value.__dict__': utils.HTML_RESPONSE_INFO,
