@@ -164,6 +164,7 @@ class WebRichObject(object):
                         self.contextly_info.get('type')):
                     type_ = self._valid_string(self.contextly_info['type'])
                     self._type = self.contextly_info['type']
+
             else:
                 self._type = self.info.get('type')
             if self._type:
@@ -388,17 +389,65 @@ class WebRichObject(object):
                     if og_video_tag is not None:
                         self._video = og_video_tag.attrs['content']
                 # From HTML5 video_tag
-                video_tag = self.soup.find('video')
-                if video_tag is not None:
-                    source_tag = video_tag.find('source')
-                    if source_tag is not None:
-                        self._video = source_tag.attrs['src']
+                if self._video is None:
+                    video_tag = self.soup.find('video')
+                    if video_tag is not None:
+                        source_tag = video_tag.find('source')
+                        if source_tag is not None:
+                            self._video = source_tag.attrs['src']
             elif self.info['maintype'] == 'video':
                 self._video = self.base_url
             # Format URL
             if self._video is not None and not self._video.startswith('http'):
                 self._video = self._format_url(self._video)
         return self._video
+
+    @property
+    def video_width(self):
+        if not hasattr(self, '_video_width'):
+            self._video_width = None
+            if self.subtype == 'html' and self.soup.find():
+                # From open graph
+                og_video_tag = self.soup.find('meta', property='og:video:width')
+                if og_video_tag is not None:
+                    self._video_width = og_video_tag.attrs['content']
+        return self._video_width
+
+    @property
+    def video_height(self):
+        if not hasattr(self, '_video_height'):
+            self._video_height = None
+            if self.subtype == 'html' and self.soup.find():
+                # From open graph
+                og_video_tag = self.soup.find('meta', property='og:video:height')
+                if og_video_tag is not None:
+                    self._video_height = og_video_tag.attrs['content']
+        return self._video_height
+
+    @property
+    def video_duration(self):
+        if not hasattr(self, '_video_duration'):
+            self._video_duration = None
+            if self.subtype == 'html' and self.soup.find():
+                # From open graph
+                og_video_tag = self.soup.find('meta', property='og:video:duration')
+                if og_video_tag is not None:
+                    self._video_duration = og_video_tag.attrs['content']
+        return self._video_duration
+
+    @property
+    def video_info(self):
+        if not hasattr(self, '_struct_video'):
+            self._struct_video = {}
+            if self.video:
+                self._struct_video['url'] = self.video
+            if self.video_width:
+                self._struct_video['width'] = self.video_width
+            if self.video_height:
+                self._struct_video['height'] = self.video_height
+            if self.video_duration:
+                self._struct_video['duration'] = self.video_duration
+        return self._struct_video
 
     @property
     def images(self):
@@ -586,6 +635,14 @@ class WebRichObject(object):
                 if (not self._tags and self.contextly_info and
                         self.contextly_info.get('tags')):
                     self._tags = self.contextly_info['tags']
+                # From meta keywords
+                if not self._tags:
+                    keywords_tag = self.soup.find('meta', attrs={'name': 'keywords'})
+                    if keywords_tag is not None:
+                        keywords = [k.strip() for k in keywords_tag.attrs['content'].split(',')]
+                        self._tags.extend(keywords)
+            self._tags = [self._valid_string(t) for t in self._tags
+                          if self._valid_string(t)]
         return self._tags
 
     @property
@@ -611,168 +668,3 @@ class WebRichObject(object):
                     elif img_meta.attrs['property'] == 'og:image:secure_url':
                         self._struct_image['secure_url'] = img_meta.attrs['content']
         return self._struct_image
-
-    @property
-    def struct_video(self):
-        if not hasattr(self, '_struct_video'):
-            _video = self.soup.find('meta', property='og:video')
-            self._struct_video = {}
-            if _video is not None:
-                self._struct_video = {
-                    'url': _video.attrs['content'],
-                }
-                next_vid_metas = _video.find_next_siblings('meta',
-                                                           property=True)
-                for vid_meta in next_vid_metas:
-                    if vid_meta.attrs['property'] == 'og:video':
-                        break
-                    elif vid_meta.attrs['property'] == 'og:video:width':
-                        self._struct_video['width'] = vid_meta.attrs['content']
-                    elif vid_meta.attrs['property'] == 'og:video:height':
-                        self._struct_video['height'] = vid_meta.attrs['content']
-                    elif vid_meta.attrs['property'] == 'og:video:type':
-                        self._struct_video['type'] = vid_meta.attrs['content']
-                    elif vid_meta.attrs['property'] == 'og:video:secure_url':
-                        self._struct_video['secure_url'] = vid_meta.attrs['content']
-        return self._struct_video
-
-    @property
-    def struct_audio(self):
-        if not hasattr(self, '_struct_audio'):
-            _audio = self.soup.find('meta', property='og:audio')
-            self._struct_audio = {}
-            if _audio is not None:
-                self._struct_audio = {
-                    'url': _audio.attrs['content'],
-                }
-                next_aud_metas = _audio.find_next_siblings('meta',
-                                                           property=True)
-                for aud_meta in next_aud_metas:
-                    if aud_meta.attrs['property'] == 'og:audio':
-                        break
-                    elif aud_meta.attrs['property'] == 'og:audio:type':
-                        self._struct_audio['type'] = aud_meta.attrs['content']
-                    elif aud_meta.attrs['property'] == 'og:audio:secure_url':
-                        self._struct_audio['secure_url'] = aud_meta.attrs['content']
-        return self._struct_audio
-
-    @property
-    def obj_music_song(self):
-        if not hasattr(self, '_obj_music_song'):
-            self._obj_music_song = {}
-            keys = ('duration', 'album', 'album:disc', 'album:track',
-                    'musician')
-            for key in keys:
-                key_tag = self.soup.find('meta', property='music:' + key)
-                if key_tag is not None:
-                    self._music_song[key.replace(':', '')] = key_tag.attrs['content']
-            self._obj_music_song = {} or None
-        return self._obj_music_song
-
-    @property
-    def obj_music_album(self):
-        if not hasattr(self, '_obj_music_album'):
-            self._music_album = {}
-            keys = ('song', 'song:disc', 'song:track', 'release_date',
-                    'musician')
-            for key in keys:
-                key_tag = self.soup.find('meta', property='music:' + key)
-                if key_tag is not None:
-                    self._music_album[key.replace(':', '')] = key_tag.attrs['content']
-            self._obj_music_album = {} or None
-        return self._obj_music_album
-
-    @property
-    def obj_music_playlist(self):
-        if not hasattr(self, '_obj_music_playlist'):
-            self._obj_music_playlist = {}
-            keys = ('song', 'song:disc', 'song:track', 'creator')
-            for key in keys:
-                key_tag = self.soup.find('meta', property='music:' + key)
-                if key_tag is not None:
-                    self._obj_music_playlist[key.replace(':', '')] = key_tag.attrs['content']
-            self._obj_music_playlist = {} or None
-        return self._obj_music_playlist
-
-    @property
-    def obj_music_radio_station(self):
-        if not hasattr(self, '_obj_radio_station'):
-            creator = self.soup.find('meta', property='music:creator')
-            if creator is None:
-                self._music_radio_station = None
-            else:
-                self._obj_music_radio_station = creator.attrs['content']
-        return self._obj_music_radio_station
-
-    @property
-    def obj_video_movie(self):
-        if not hasattr(self, '_obj_video_movie'):
-            self._obj_video_movie = {}
-            keys = ('song', 'song:disc', 'song:track', 'creator')
-            for key in keys:
-                key_tag = self.soup.find('meta', property='video:' + key)
-                if key_tag is not None:
-                    self._obj_video_movie[key.replace(':', '')] = key_tag.attrs['content']
-            self._obj_video_movie = {} or None
-        return self._obj_video_movie
-
-    @property
-    def obj_article(self):
-        if not hasattr(self, '_obj_article'):
-            self._obj_article = {}
-
-            keys = ('published_time', 'modified_time', 'expiration_time',
-                    'section')
-            for key in keys:
-                key_tag = self.soup.find('meta', property='article:' + key)
-                if key_tag is not None:
-                    self._obj_article[key.replace(':', '')] = key_tag.attrs['content']
-
-            array_keys = ('author', 'tag')
-            for key in array_keys:
-                key_tags = self.soup.find_all('meta', property='article:' + key)
-                for key_tag in key_tags:
-                    _key = key.replace(':', '')
-                    if _key not in self._obj_article:
-                        self._obj_article[_key] = []
-                    self._obj_article[_key] = key_tag.attrs['content']
-
-            self._obj_article = {} or None
-        return self._obj_article
-
-    @property
-    def obj_book(self):
-        if not hasattr(self, '_obj_book'):
-            self._obj_book = {}
-
-            keys = ('isbn', 'release_date')
-            for key in keys:
-                key_tag = self.soup.find('meta', property='book:' + key)
-                if key_tag is not None:
-                    self._obj_book[key.replace(':', '')] = key_tag.attrs['content']
-
-            array_keys = ('author', 'tag')
-            for key in array_keys:
-                key_tags = self.soup.find_all('meta', property='book:' + key)
-                for key_tag in key_tags:
-                    _key = key.replace(':', '')
-                    if _key not in self._obj_book:
-                        self._obj_book[_key] = []
-                    self._obj_book[_key].append(key_tag.attrs['content'])
-
-            self._obj_book = self._obj_book or None
-        return self._obj_book
-
-    @property
-    def obj_profile(self):
-        if not hasattr(self, '_obj_profile'):
-            self._obj_profile = {}
-
-            keys = ('first_name', 'last_name', 'username', 'gender')
-            for key in keys:
-                key_tag = self.soup.find('meta', property='profile:' + key)
-                if key_tag is not None:
-                    self._obj_profile[key.replace(':', '')] = key_tag.attrs['content']
-
-            self._obj_profile = self._obj_profile or None
-        return self._obj_profile

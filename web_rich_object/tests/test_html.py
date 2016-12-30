@@ -209,6 +209,72 @@ class WebRichObjectVideoTest(utils.BaseWebRichObjectTestCase):
         'return_value.info.return_value.__dict__': utils.HTML_RESPONSE_INFO,
     }
 
+    def test_from_og_video_url(self):
+        wro = WRO(self.url)
+        self.assertEqual(wro.video, 'http://example.com/foo.mp4')
+    test_from_og_video_url.mock_attrs = {
+        'return_value.read.return_value': '<html><meta property="og:video:url" content="foo.mp4"/></html>',
+        'return_value.info.return_value.__dict__': utils.HTML_RESPONSE_INFO,
+    }
+
+    def test_from_og_video_secure_url(self):
+        wro = WRO(self.url)
+        self.assertEqual(wro.video, 'http://example.com/foo.mp4')
+    test_from_og_video_secure_url.mock_attrs = {
+        'return_value.read.return_value': '<html><meta property="og:video:secure_url" content="foo.mp4"/></html>',
+        'return_value.info.return_value.__dict__': utils.HTML_RESPONSE_INFO,
+    }
+
+    def test_from_html5_tag(self):
+        wro = WRO(self.url)
+        self.assertEqual(wro.video, 'http://example.com/foo.mp4')
+    test_from_html5_tag.mock_attrs = {
+        'return_value.read.return_value': '<html><video><source src="foo.mp4"></source></video></html>',
+        'return_value.info.return_value.__dict__': utils.HTML_RESPONSE_INFO,
+    }
+
+
+class WebRichObjectVideoWidthTest(utils.BaseWebRichObjectTestCase):
+    def test_from_og_video_width(self):
+        wro = WRO(self.url)
+        self.assertEqual(wro.video_width, '1280')
+    test_from_og_video_width.mock_attrs = {
+        'return_value.read.return_value': '<html><meta property="og:video:width" content="1280"/></html>',
+        'return_value.info.return_value.__dict__': utils.HTML_RESPONSE_INFO,
+    }
+
+
+class WebRichObjectVideoHeightTest(utils.BaseWebRichObjectTestCase):
+    def test_from_og_video_height(self):
+        wro = WRO(self.url)
+        self.assertEqual(wro.video_height, '720')
+    test_from_og_video_height.mock_attrs = {
+        'return_value.read.return_value': '<html><meta property="og:video:height" content="720"/></html>',
+        'return_value.info.return_value.__dict__': utils.HTML_RESPONSE_INFO,
+    }
+
+
+VIDEO_INFO = """<html>
+<meta property="og:video" content="foo.mp4"/>
+<meta property="og:video:width" content="1280"/>
+<meta property="og:video:height" content="720"/>
+</html>"""
+
+
+class WebRichObjectVideoInfoTest(utils.BaseWebRichObjectTestCase):
+    def test_property(self):
+        wro = WRO(self.url)
+        video_info = {
+            'url': 'http://example.com/foo.mp4',
+            'width': '1280',
+            'height': '720'
+        }
+        self.assertEqual(wro.video_info, video_info)
+    test_property.mock_attrs = {
+        'return_value.read.return_value': VIDEO_INFO,
+        'return_value.info.return_value.__dict__': utils.HTML_RESPONSE_INFO,
+    }
+
 
 class WebRichObjectImagesTest(utils.BaseWebRichObjectTestCase):
     def test_from_og_images(self):
